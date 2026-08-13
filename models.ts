@@ -8,7 +8,6 @@ export async function connectDB(uri: string) {
     console.log('✅ Connected to MongoDB successfully (FUSION).');
   } catch (error) {
     console.error('❌ MongoDB connection error (FUSION):', error);
-    process.exit(1);
   }
 }
 
