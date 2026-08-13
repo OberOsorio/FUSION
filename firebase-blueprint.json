@@ -1,0 +1,106 @@
+{
+  "entities": {
+    "Campaign": {
+      "title": "Campaign",
+      "description": "Political campaign workspace entity",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "candidateName": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "Voter": {
+      "title": "Voter",
+      "description": "Active voter in electoral census",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cedula": { "type": "string" },
+        "nombreCompleto": { "type": "string" },
+        "telefono": { "type": "string" },
+        "barrio": { "type": "string" },
+        "comunaSector": { "type": "string" },
+        "puestoVotacion": { "type": "string" },
+        "direccionPuesto": { "type": "string" },
+        "mesa": { "type": "number" },
+        "liderAsignado": { "type": "string" },
+        "intencionVoto": { "type": "string" },
+        "requiereTransporte": { "type": "boolean" },
+        "observaciones": { "type": "string" },
+        "fechaRegistro": { "type": "string" },
+        "estadoCenso": { "type": "string" },
+        "circunscripcion": { "type": "string" }
+      },
+      "required": ["id", "cedula", "nombreCompleto", "liderAsignado"]
+    },
+    "ArchivedVoter": {
+      "title": "ArchivedVoter",
+      "description": "Archived non-census voter",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cedula": { "type": "string" },
+        "nombreCompleto": { "type": "string" },
+        "telefono": { "type": "string" },
+        "circunscripcionOriginal": { "type": "string" },
+        "puestoOriginal": { "type": "string" },
+        "liderAsignado": { "type": "string" },
+        "motivo": { "type": "string" },
+        "fechaArchivado": { "type": "string" }
+      },
+      "required": ["id", "cedula", "nombreCompleto"]
+    },
+    "TerritorialZone": {
+      "title": "TerritorialZone",
+      "description": "Territorial zone management data",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "nombre": { "type": "string" },
+        "lideres": { "type": "number" },
+        "votantes": { "type": "number" },
+        "cobertura": { "type": "number" },
+        "heatValue": { "type": "number" },
+        "testigosActivos": { "type": "number" },
+        "testigosFaltantes": { "type": "number" }
+      },
+      "required": ["id", "nombre"]
+    },
+    "E14Record": {
+      "title": "E14Record",
+      "description": "E14 electoral tally sheet record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "mesa": { "type": "string" },
+        "ocrStatus": { "type": "string" },
+        "validation": { "type": "string" },
+        "puesto": { "type": "string" },
+        "votosRegistrados": { "type": "number" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "mesa", "ocrStatus"]
+    }
+  },
+  "firestore": {
+    "/voters/{voterId}": {
+      "schema": "Voter",
+      "description": "Active registered voters collection"
+    },
+    "/archived_voters/{voterId}": {
+      "schema": "ArchivedVoter",
+      "description": "Archived rejected voters collection"
+    },
+    "/territorial_zones/{zoneId}": {
+      "schema": "TerritorialZone",
+      "description": "Territorial zones data"
+    },
+    "/e14_records/{recordId}": {
+      "schema": "E14Record",
+      "description": "E14 tally sheet records"
+    }
+  }
+}
