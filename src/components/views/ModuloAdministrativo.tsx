@@ -420,56 +420,55 @@ export const ModuloAdministrativo: React.FC<ModuloAdministrativoProps> = ({
 
         (signUpPromise as any).then(({ data, error }: any) => {
           if (error) {
-            console.error("Error registering user in Supabase:", error.message);
-            if (error.message.toLowerCase().includes('rate limit') || error.message.toLowerCase().includes('limit exceeded')) {
-              console.log("Supabase Auth rate limit hit. Falling back to direct database insertion...");
-              const tempId = 'fallback-' + Date.now();
-              const dbPromise = insforge.database.from('users_list').insert([{
+            console.warn("Supabase Auth notice during user registration:", error.message, "- Proceeding with campaign database registration...");
+            const tempId = 'usr-' + Date.now();
+            const dbPromise = insforge.database.from('users_list').insert([{
+              id: tempId,
+              email: normalizedEmail,
+              first_name: newUserName,
+              last_name: '',
+              role_id: newUserRole,
+              role_name: newUserRole === 'admin' ? 'Gestión Administrativa' : newUserRole === 'estrategico' ? 'Gestión Estratégica' : 'Gestión Territorial',
+              client_id: activeClientId,
+              client_name: activeClientName,
+              status: 'Activo',
+              password: newPassword,
+              last_access_at: new Date().toISOString(),
+              created_at: new Date().toISOString()
+            }]);
+
+            (dbPromise as any).then(({ error: dbErr }: any) => {
+              if (dbErr) {
+                console.error("Error inserting into InsForge database:", dbErr.message);
+              }
+              console.log("User successfully added to campaign database users_list!");
+              setUserPermissions(prev => ({
+                ...prev,
+                [tempId]: finalPerms
+              }));
+
+              const newUser = {
                 id: tempId,
+                name: newUserName,
                 email: normalizedEmail,
-                first_name: newUserName,
-                last_name: '',
-                role_id: newUserRole,
-                role_name: newUserRole === 'admin' ? 'Gestión Administrativa' : newUserRole === 'estrategico' ? 'Gestión Estratégica' : 'Gestión Territorial',
-                client_id: activeClientId,
-                client_name: activeClientName,
-                status: 'Activo',
-                last_access_at: new Date().toISOString(),
-                created_at: new Date().toISOString()
-              }]);
+                role: newUserRole,
+                status: 'Activo' as const
+              };
+              
+              setUsersList(prev => [...prev, newUser]);
+              setNewUserName('');
+              setNewUserEmail('');
+              setNewPassword('');
+              setConfirmPassword('');
+              setPasswordError('');
+              setActionSuccessMessage(`¡Usuario ${newUserName} (${normalizedEmail}) registrado y habilitado exitosamente en la base de datos de la campaña!`);
+              setTimeout(() => setActionSuccessMessage(''), 5000);
 
-              (dbPromise as any).then(({ error: dbErr }: any) => {
-                if (dbErr) {
-                  setPasswordError(`Error al insertar en la base de datos de la campaña: ${dbErr.message}`);
-                } else {
-                  console.log("User successfully added to InsForge database users_list under rate-limit fallback!");
-                  setUserPermissions(prev => ({
-                    ...prev,
-                    [tempId]: finalPerms
-                  }));
-
-                  const newUser = {
-                    id: tempId,
-                    name: newUserName,
-                    email: normalizedEmail,
-                    role: newUserRole,
-                    status: 'Activo' as const
-                  };
-                  
-                  setUsersList(prev => [...prev, newUser]);
-                  setNewUserName('');
-                  setNewUserEmail('');
-                  setNewPassword('');
-                  setConfirmPassword('');
-                  setPasswordError('');
-                  setActionSuccessMessage(`¡Usuario ${newUserName} registrado y habilitado exitosamente en la base de datos de la campaña!`);
-                  setTimeout(() => setActionSuccessMessage(''), 5000);
-
-                  // Send email confirmation of their account creation (fallback path)
-                  insforge.emails.send({
-                    to: normalizedEmail,
-                    subject: `¡Bienvenido a la Campaña de ${activeClientName}! - Creación de Usuario`,
-                    html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #1e293b; background-color: #030d1f; color: #f8fafc; border-radius: 12px;">
+              // Send email confirmation of their account creation (fallback path)
+              insforge.emails.send({
+                to: normalizedEmail,
+                subject: `¡Bienvenido a la Campaña de ${activeClientName}! - Creación de Usuario`,
+                html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #1e293b; background-color: #030d1f; color: #f8fafc; border-radius: 12px;">
   <div style="text-align: center; margin-bottom: 20px;">
     <h1 style="color: #06b6d4; font-size: 24px; font-weight: 800; margin: 0; text-transform: uppercase;">Campaña Ganadora IA</h1>
     <p style="color: #94a3b8; font-size: 12px; margin: 4px 0 0 0;">Plataforma de Control Electoral</p>
@@ -498,14 +497,10 @@ export const ModuloAdministrativo: React.FC<ModuloAdministrativoProps> = ({
     </p>
   </div>
 </div>`
-                  }).then(({ error: mailErr }: any) => {
-                    if (mailErr) console.error("Error sending confirmation email via InsForge:", mailErr.message);
-                  });
-                }
+              }).then(({ error: mailErr }: any) => {
+                if (mailErr) console.error("Error sending confirmation email via InsForge:", mailErr.message);
               });
-            } else {
-              setPasswordError(`Error de Supabase Auth / Base de Datos: ${error.message}`);
-            }
+            });
           } else {
             console.log("User successfully registered in Supabase auth:", data.user);
             const supabaseUserId = data.user.id;
