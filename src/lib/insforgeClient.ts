@@ -94,6 +94,37 @@ function syncLocalUsersRecords(records: any[]) {
   }))));
 }
 
+const getApiUrl = (endpoint: string, id?: string) => {
+  const customUrl = (import.meta as any).env?.VITE_API_URL || '';
+  const path = id ? `/api/${endpoint}/${id}` : `/api/${endpoint}`;
+  if (customUrl) return `${customUrl.replace(/\/$/, '')}${path}`;
+  return path;
+};
+
+const safeFetchAPI = async (endpoint: string, id?: string) => {
+  const primaryUrl = getApiUrl(endpoint, id);
+  try {
+    let res = await fetch(primaryUrl);
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
+      return await res.json();
+    }
+    // Fallback to direct localhost:3000 port
+    const fallbackUrl = `http://localhost:3000/api/${endpoint}${id ? `/${id}` : ''}`;
+    if (primaryUrl !== fallbackUrl) {
+      res = await fetch(fallbackUrl);
+      if (res.ok) return await res.json();
+    }
+  } catch (err) {
+    const fallbackUrl = `http://localhost:3000/api/${endpoint}${id ? `/${id}` : ''}`;
+    try {
+      const res = await fetch(fallbackUrl);
+      if (res.ok) return await res.json();
+    } catch (e) {}
+  }
+  return null;
+};
+
 export const insforge = {
   database: {
     from(table: string) {
@@ -110,20 +141,12 @@ export const insforge = {
             let data: any[] = [];
 
             try {
-              let url = `${API_URL}/api/${endpoint}`;
               const idFilter = filters.find(f => f.field === 'id');
-              if (idFilter) {
-                url = `${API_URL}/api/${endpoint}/${idFilter.value}`;
-              }
-
-              const res = await fetch(url);
-              if (res.ok) {
-                const apiData = await res.json();
-                if (Array.isArray(apiData)) {
-                  data = apiData;
-                } else if (apiData) {
-                  data = [apiData];
-                }
+              const apiData = await safeFetchAPI(endpoint, idFilter?.value);
+              if (Array.isArray(apiData)) {
+                data = apiData;
+              } else if (apiData) {
+                data = [apiData];
               }
             } catch (error) {
               console.warn(`Fetch error for ${table}, using local storage fallback:`, error);
