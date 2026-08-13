@@ -1,4 +1,6 @@
-// Mock client that redirects database and RPC calls to the local FUSION Express server API
+// Mock client that redirects database and RPC calls to the local or remote Express server API
+const API_URL = import.meta.env.VITE_API_URL || '';
+
 export const insforge = {
   database: {
     from(table: string) {
@@ -14,12 +16,12 @@ export const insforge = {
           const execute = async () => {
             try {
               // Build the URL based on filters
-              let url = `/api/${endpoint}`;
+              let url = `${API_URL}/api/${endpoint}`;
               
               // Optimistic quick check if we filter by ID
               const idFilter = filters.find(f => f.field === 'id');
               if (idFilter) {
-                url = `/api/${endpoint}/${idFilter.value}`;
+                url = `${API_URL}/api/${endpoint}/${idFilter.value}`;
               }
 
               const res = await fetch(url);
@@ -76,7 +78,7 @@ export const insforge = {
         insert(records: any[]) {
           return (async () => {
             try {
-              const res = await fetch(`/api/${endpoint}`, {
+              const res = await fetch(`${API_URL}/api/${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(records)
@@ -94,7 +96,7 @@ export const insforge = {
         upsert(records: any[]) {
           return (async () => {
             try {
-              const res = await fetch(`/api/${endpoint}`, {
+              const res = await fetch(`${API_URL}/api/${endpoint}`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(records)
@@ -115,8 +117,8 @@ export const insforge = {
               return (async () => {
                 try {
                   const url = field === 'id' 
-                    ? `/api/${endpoint}/${value}` 
-                    : `/api/${endpoint}?field=${field}&value=${value}`;
+                    ? `${API_URL}/api/${endpoint}/${value}` 
+                    : `${API_URL}/api/${endpoint}?field=${field}&value=${value}`;
                   
                   const res = await fetch(url, {
                     method: 'PUT',
@@ -141,8 +143,8 @@ export const insforge = {
               return (async () => {
                 try {
                   const url = field === 'id' 
-                    ? `/api/${endpoint}/${value}` 
-                    : `/api/${endpoint}?field=${field}&value=${value}`;
+                    ? `${API_URL}/api/${endpoint}/${value}` 
+                    : `${API_URL}/api/${endpoint}?field=${field}&value=${value}`;
                     
                   const res = await fetch(url, {
                     method: 'DELETE'
@@ -171,7 +173,7 @@ export const insforge = {
 
   async rpc(name: string, params: any) {
     try {
-      const res = await fetch(`/api/rpc/${name}`, {
+      const res = await fetch(`${API_URL}/api/rpc/${name}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)

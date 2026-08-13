@@ -1,9 +1,11 @@
-// Mock Supabase client that routes auth requests to the local FUSION Express server API
+// Mock Supabase client that routes auth requests to the local or remote Express server API
+const API_URL = import.meta.env.VITE_API_URL || '';
+
 export const supabase = {
   auth: {
     async signInWithPassword({ email, password }: any) {
       try {
-        const res = await fetch('/api/auth/login', {
+        const res = await fetch(`${API_URL}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password })
@@ -21,7 +23,7 @@ export const supabase = {
     
     async signUp({ email, password, options }: any) {
       try {
-        const res = await fetch('/api/auth/register', {
+        const res = await fetch(`${API_URL}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -43,7 +45,7 @@ export const supabase = {
     
     async signOut() {
       try {
-        const res = await fetch('/api/auth/logout', { method: 'POST' });
+        const res = await fetch(`${API_URL}/api/auth/logout`, { method: 'POST' });
         return { error: res.ok ? null : new Error(`HTTP error ${res.status}`) };
       } catch (error: any) {
         return { error };
@@ -52,7 +54,7 @@ export const supabase = {
     
     async getUser() {
       try {
-        const res = await fetch('/api/auth/me');
+        const res = await fetch(`${API_URL}/api/auth/me`);
         if (!res.ok) return { data: { user: null }, error: null };
         const user = await res.json();
         return { data: { user }, error: null };
@@ -64,7 +66,7 @@ export const supabase = {
     async signInWithOAuth({ provider, options }: any) {
       console.log('OAuth sign-in triggered for provider:', provider);
       try {
-        const res = await fetch('/api/auth/login', {
+        const res = await fetch(`${API_URL}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: 'admin@campanaganadora.ai', password: 'password', isOAuth: true })
