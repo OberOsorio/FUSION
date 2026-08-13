@@ -252,14 +252,9 @@ const getApiUrl = (endpoint: string, id?: string) => {
 };
 
 const safeFetchAPI = async (endpoint: string, id?: string) => {
-  const customUrl = (import.meta as any).env?.VITE_API_URL || '';
-  if (!customUrl) {
-    return null; // Instant execution (<1ms) when no remote server URL is set
-  }
-
   const primaryUrl = getApiUrl(endpoint, id);
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 600);
+  const timeoutId = setTimeout(() => controller.abort(), 2000);
 
   try {
     const res = await fetch(primaryUrl, { signal: controller.signal });
@@ -270,6 +265,7 @@ const safeFetchAPI = async (endpoint: string, id?: string) => {
     }
   } catch (err) {
     clearTimeout(timeoutId);
+    console.warn(`Fetch to ${primaryUrl} failed:`, err);
   }
   return null;
 };

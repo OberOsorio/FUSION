@@ -253,6 +253,66 @@ export const ModuloAdministrativo: React.FC<ModuloAdministrativoProps> = ({
     localStorage.setItem('campaign_user_permissions', JSON.stringify(userPermissions));
   }, [userPermissions]);
 
+  // Load users and default permissions from campaign database on mount
+  useEffect(() => {
+    const loadDbUsers = async () => {
+      try {
+        const { data: dbUsers, error } = await insforge.database
+          .from('users_list')
+          .select('*');
+
+        if (error) {
+          console.error("Error loading users from database:", error);
+          return;
+        }
+
+        if (dbUsers && dbUsers.length > 0) {
+          const currentClientId = authUser?.clientId || 'client-101';
+          const filtered = dbUsers.filter((u: any) => {
+            const uClientId = u.client_id || u.clientId;
+            return String(uClientId) === String(currentClientId);
+          });
+
+          if (filtered.length > 0) {
+            const mapped = filtered.map((u: any) => {
+              const fullName = u.name || `${u.first_name || u.firstName || ''} ${u.last_name || u.lastName || ''}`.trim() || u.email.split('@')[0];
+              const roleId = u.role_id || u.roleId || u.role || 'admin';
+              const mappedRole = (roleId === 'role-clientadmin' || roleId === 'role-client-admin' || roleId === 'ADMIN_CLIENTE') ? 'admin' : roleId;
+              
+              return {
+                id: u.id,
+                name: fullName,
+                email: u.email,
+                role: mappedRole,
+                status: u.status || 'Activo'
+              };
+            });
+
+            setUsersList(mapped);
+
+            // Populate default permissions for any new users
+            setUserPermissions(prev => {
+              const updated = { ...prev };
+              let changed = false;
+              mapped.forEach(u => {
+                if (!updated[u.id]) {
+                  const roleKey = (u.role === 'admin' || u.role === 'estrategico' || u.role === 'territorial') ? u.role : 'admin';
+                  updated[u.id] = MODULE_FUNCTIONS[roleKey].map(p => ({ ...p, enabled: true }));
+                  changed = true;
+                }
+              });
+              return changed ? updated : prev;
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load users from database:", err);
+      }
+    };
+
+    loadDbUsers();
+  }, [authUser]);
+
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
 
   // Handle User Role Change
