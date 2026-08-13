@@ -31,7 +31,13 @@ export const insforge = {
               // Apply filtering in memory to ensure perfect behavior
               if (Array.isArray(data)) {
                 filters.forEach(f => {
-                  data = data.filter((item: any) => String(item[f.field]) === String(f.value));
+                  if (f.field === 'email') {
+                    data = data.filter((item: any) => 
+                      item.email && String(item.email).trim().toLowerCase() === String(f.value).trim().toLowerCase()
+                    );
+                  } else {
+                    data = data.filter((item: any) => String(item[f.field]) === String(f.value));
+                  }
                 });
                 if (isSingle) {
                   data = data[0] || null;
