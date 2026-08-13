@@ -6,12 +6,20 @@ const API_URL = (import.meta as any).env.VITE_API_URL || '';
 export const supabase = {
   auth: {
     async signInWithPassword({ email, password }: any) {
+      const customUrl = (import.meta as any).env?.VITE_API_URL || '';
+      if (!customUrl) {
+        return { data: null, error: { message: 'Local mode authentication' } };
+      }
       try {
-        const res = await fetch(`${API_URL}/api/auth/login`, {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 600);
+        const res = await fetch(`${customUrl}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password })
+          body: JSON.stringify({ email, password }),
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.error || `HTTP error ${res.status}`);
@@ -24,16 +32,24 @@ export const supabase = {
     },
     
     async signUp({ email, password, options }: any) {
+      const customUrl = (import.meta as any).env?.VITE_API_URL || '';
+      if (!customUrl) {
+        return { data: null, error: { message: 'Local mode registration' } };
+      }
       try {
-        const res = await fetch(`${API_URL}/api/auth/register`, {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 600);
+        const res = await fetch(`${customUrl}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             email,
             password,
             name: options?.data?.name || email.split('@')[0]
-          })
+          }),
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.error || `HTTP error ${res.status}`);

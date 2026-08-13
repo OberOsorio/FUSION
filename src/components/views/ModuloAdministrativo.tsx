@@ -452,7 +452,8 @@ export const ModuloAdministrativo: React.FC<ModuloAdministrativoProps> = ({
                 name: newUserName,
                 email: normalizedEmail,
                 role: newUserRole,
-                status: 'Activo' as const
+                status: 'Activo' as const,
+                password: newPassword
               };
               
               setUsersList(prev => [...prev, newUser]);
@@ -516,6 +517,7 @@ export const ModuloAdministrativo: React.FC<ModuloAdministrativoProps> = ({
               client_id: activeClientId,
               client_name: activeClientName,
               status: 'Activo',
+              password: newPassword,
               last_access_at: new Date().toISOString(),
               created_at: new Date().toISOString()
             }]);
@@ -538,7 +540,8 @@ export const ModuloAdministrativo: React.FC<ModuloAdministrativoProps> = ({
                   name: newUserName,
                   email: normalizedEmail,
                   role: newUserRole,
-                  status: 'Activo' as const
+                  status: 'Activo' as const,
+                  password: newPassword
                 };
                 
                 setUsersList(prev => [...prev, newUser]);

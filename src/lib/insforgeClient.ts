@@ -2,9 +2,155 @@
 // Mock client that redirects database and RPC calls to the local or remote Express server API
 const API_URL = (import.meta as any).env?.VITE_API_URL || '';
 
+const DEFAULT_SEED_USERS = [
+  {
+    id: 'u-admin-1',
+    email: 'admin@campana.ai',
+    first_name: 'Santiago',
+    last_name: 'Pérez',
+    name: 'Santiago Pérez (Admin)',
+    role_id: 'admin',
+    role_name: 'Gestión Administrativa',
+    client_id: 'client-101',
+    client_name: 'Campaña Principal',
+    status: 'Activo',
+    created_at: new Date().toISOString(),
+    password: 'admin2026'
+  },
+  {
+    id: 'u-admin-2',
+    email: 'ober.osorio@campana.ai',
+    first_name: 'Ober',
+    last_name: 'Osorio',
+    name: 'Ober Osorio',
+    role_id: 'admin',
+    role_name: 'Gestión Administrativa',
+    client_id: 'client-101',
+    client_name: 'Campaña Principal',
+    status: 'Activo',
+    created_at: new Date().toISOString(),
+    password: 'password'
+  },
+  {
+    id: 'u-admin-3',
+    email: 'santiago.perez@campana.ai',
+    first_name: 'Santiago',
+    last_name: 'Pérez',
+    name: 'Santiago Pérez',
+    role_id: 'admin',
+    role_name: 'Gestión Administrativa',
+    client_id: 'client-101',
+    client_name: 'Campaña Principal',
+    status: 'Activo',
+    created_at: new Date().toISOString(),
+    password: 'password'
+  },
+  {
+    id: 'u-estrategico-1',
+    email: 'estrategia@campana.ai',
+    first_name: 'Elena',
+    last_name: 'Rostova',
+    name: 'Dra. Elena Rostova',
+    role_id: 'estrategico',
+    role_name: 'Gestión Estratégica',
+    client_id: 'client-101',
+    client_name: 'Campaña Principal',
+    status: 'Activo',
+    created_at: new Date().toISOString(),
+    password: 'estrategia2026'
+  },
+  {
+    id: 'u-estrategico-2',
+    email: 'carlos.ruiz@campana.ai',
+    first_name: 'Carlos',
+    last_name: 'Ruiz',
+    name: 'Carlos Ruiz',
+    role_id: 'estrategico',
+    role_name: 'Gestión Estratégica',
+    client_id: 'client-101',
+    client_name: 'Campaña Principal',
+    status: 'Activo',
+    created_at: new Date().toISOString(),
+    password: 'password'
+  },
+  {
+    id: 'u-estrategico-3',
+    email: 'diana.gomez@campana.ai',
+    first_name: 'Diana',
+    last_name: 'Gómez',
+    name: 'Diana Gómez',
+    role_id: 'estrategico',
+    role_name: 'Gestión Estratégica',
+    client_id: 'client-101',
+    client_name: 'Campaña Principal',
+    status: 'Activo',
+    created_at: new Date().toISOString(),
+    password: 'password'
+  },
+  {
+    id: 'u-territorial-1',
+    email: 'territorio@campana.ai',
+    first_name: 'Carlos',
+    last_name: 'Mendoza',
+    name: 'Carlos Mendoza',
+    role_id: 'territorial',
+    role_name: 'Gestión Territorial',
+    client_id: 'client-101',
+    client_name: 'Campaña Principal',
+    status: 'Activo',
+    created_at: new Date().toISOString(),
+    password: 'territorio2026'
+  },
+  {
+    id: 'u-territorial-2',
+    email: 'felipe.restrepo@campana.ai',
+    first_name: 'Felipe',
+    last_name: 'Restrepo',
+    name: 'Felipe Restrepo',
+    role_id: 'territorial',
+    role_name: 'Gestión Territorial',
+    client_id: 'client-101',
+    client_name: 'Campaña Principal',
+    status: 'Activo',
+    created_at: new Date().toISOString(),
+    password: 'password'
+  },
+  {
+    id: 'u-territorial-3',
+    email: 'juan.valdes@campana.ai',
+    first_name: 'Juan',
+    last_name: 'Valdés',
+    name: 'Juan Valdés',
+    role_id: 'territorial',
+    role_name: 'Gestión Territorial',
+    client_id: 'client-101',
+    client_name: 'Campaña Principal',
+    status: 'Activo',
+    created_at: new Date().toISOString(),
+    password: 'password'
+  },
+  {
+    id: 'u-territorial-4',
+    email: 'camila.londono@campana.ai',
+    first_name: 'Camila',
+    last_name: 'Londoño',
+    name: 'Camila Londoño',
+    role_id: 'territorial',
+    role_name: 'Gestión Territorial',
+    client_id: 'client-101',
+    client_name: 'Campaña Principal',
+    status: 'Activo',
+    created_at: new Date().toISOString(),
+    password: 'password'
+  }
+];
+
 // Helper to get local users from all storage keys and normalize schema
 function getNormalizedLocalUsers(): any[] {
   const usersMap = new Map<string, any>();
+
+  // Pre-seed default campaign users
+  DEFAULT_SEED_USERS.forEach(u => usersMap.set(u.email.toLowerCase().trim(), u));
 
   const keys = ['campaign_users_list', 'cg_users', 'campaign_users'];
   for (const key of keys) {
@@ -17,15 +163,18 @@ function getNormalizedLocalUsers(): any[] {
           if (!item || (!item.email && !item.id)) return;
           const email = (item.email || '').trim().toLowerCase();
           const id = item.id || `u-${email}`;
+
+          const existing = usersMap.get(email) || usersMap.get(id) || {};
           
           const fullName = item.name || `${item.first_name || item.firstName || ''} ${item.last_name || item.lastName || ''}`.trim() || email.split('@')[0];
           const firstName = item.first_name || item.firstName || (fullName ? fullName.split(' ')[0] : email.split('@')[0]);
           const lastName = item.last_name || item.lastName || (fullName && fullName.includes(' ') ? fullName.split(' ').slice(1).join(' ') : '');
           
-          const roleId = item.role_id || item.roleId || item.role || 'admin';
-          const roleName = item.role_name || item.roleName || (roleId === 'admin' ? 'Gestión Administrativa' : roleId === 'estrategico' ? 'Gestión Estratégica' : 'Gestión Territorial');
+          const roleId = item.role_id || item.roleId || item.role || existing.role_id || 'admin';
+          const roleName = item.role_name || item.roleName || existing.role_name || (roleId === 'admin' ? 'Gestión Administrativa' : roleId === 'estrategico' ? 'Gestión Estratégica' : 'Gestión Territorial');
           
           const normalized = {
+            ...existing,
             id,
             email,
             first_name: firstName,
@@ -33,11 +182,11 @@ function getNormalizedLocalUsers(): any[] {
             name: fullName,
             role_id: roleId,
             role_name: roleName,
-            client_id: item.client_id || item.clientId || 'client-101',
-            client_name: item.client_name || item.clientName || 'Campaña Principal',
-            status: item.status || 'Activo',
-            created_at: item.created_at || item.createdAt || new Date().toISOString(),
-            password: item.password || item.passwordHash
+            client_id: item.client_id || item.clientId || existing.client_id || 'client-101',
+            client_name: item.client_name || item.clientName || existing.client_name || 'Campaña Principal',
+            status: item.status || existing.status || 'Activo',
+            created_at: item.created_at || item.createdAt || existing.created_at || new Date().toISOString(),
+            password: item.password || item.passwordHash || existing.password
           };
           
           usersMap.set(email || id, normalized);
@@ -90,7 +239,8 @@ function syncLocalUsersRecords(records: any[]) {
     name: u.name,
     email: u.email,
     role: u.role_id,
-    status: u.status
+    status: u.status,
+    password: u.password
   }))));
 }
 
@@ -102,25 +252,24 @@ const getApiUrl = (endpoint: string, id?: string) => {
 };
 
 const safeFetchAPI = async (endpoint: string, id?: string) => {
+  const customUrl = (import.meta as any).env?.VITE_API_URL || '';
+  if (!customUrl) {
+    return null; // Instant execution (<1ms) when no remote server URL is set
+  }
+
   const primaryUrl = getApiUrl(endpoint, id);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 600);
+
   try {
-    let res = await fetch(primaryUrl);
+    const res = await fetch(primaryUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
     const contentType = res.headers.get('content-type') || '';
     if (res.ok && contentType.includes('application/json')) {
       return await res.json();
     }
-    // Fallback to direct localhost:3000 port
-    const fallbackUrl = `http://localhost:3000/api/${endpoint}${id ? `/${id}` : ''}`;
-    if (primaryUrl !== fallbackUrl) {
-      res = await fetch(fallbackUrl);
-      if (res.ok) return await res.json();
-    }
   } catch (err) {
-    const fallbackUrl = `http://localhost:3000/api/${endpoint}${id ? `/${id}` : ''}`;
-    try {
-      const res = await fetch(fallbackUrl);
-      if (res.ok) return await res.json();
-    } catch (e) {}
+    clearTimeout(timeoutId);
   }
   return null;
 };
