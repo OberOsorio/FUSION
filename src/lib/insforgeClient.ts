@@ -53,7 +53,30 @@ export const insforge = {
 
               return { data, error: null };
             } catch (error: any) {
-              console.error(`Error in select for ${table}:`, error);
+              console.warn(`Error in select for ${table}, attempting local storage fallback:`, error);
+              let data: any[] = [];
+              const saved = localStorage.getItem(`cg_${endpoint}`);
+              if (saved) {
+                try {
+                  data = JSON.parse(saved);
+                } catch (e) {
+                  data = [];
+                }
+              }
+              if (Array.isArray(data) && data.length > 0) {
+                filters.forEach(f => {
+                  if (f.field === 'email') {
+                    data = data.filter((item: any) => 
+                      item.email && String(item.email).trim().toLowerCase() === String(f.value).trim().toLowerCase()
+                    );
+                  } else {
+                    data = data.filter((item: any) => String(item[f.field]) === String(f.value));
+                  }
+                });
+                if (isSingle) data = data[0] || null;
+                else if (limitVal !== null) data = data.slice(0, limitVal);
+                return { data, error: null };
+              }
               return { data: null, error };
             }
           };
