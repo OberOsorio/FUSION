@@ -28,8 +28,8 @@ dotenv.config();
 const PORT = Number(process.env.PORT) || 3001;
 const DB_FILE = path.join(process.cwd(), 'data_db.json');
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filename = typeof import.meta !== 'undefined' && import.meta.url ? fileURLToPath(import.meta.url) : '';
+const __dirname = __filename ? path.dirname(__filename) : '';
 
 // Helper to parse cookies from requests
 const parseCookies = (req: any) => {

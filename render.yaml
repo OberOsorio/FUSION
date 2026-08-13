@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: fusion-electoral
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: MONGODB_URI
+        value: "" # MongoDB connection string (e.g. from MongoDB Atlas)
+      - key: GEMINI_API_KEY
+        value: "" # Optional: Gemini AI key
+      - key: VITE_SUPABASE_URL
+        value: "https://ojvrlleziqrimhjvsbwf.supabase.co"
+      - key: VITE_SUPABASE_ANON_KEY
+        value: "sb_publishable_mI1eBd8nNRGv9uIICgOU-w_2weLI9lp"
+      - key: VITE_INSFORGE_BASE_URL
+        value: "https://avy66p8w.us-east.insforge.app"
+      - key: VITE_INSFORGE_ANON_KEY
+        value: "ik_671a4094c023f2c25c158e629973a5f3"
