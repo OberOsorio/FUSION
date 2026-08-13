@@ -309,17 +309,19 @@ export const PrimeraInterfaz: React.FC<PrimeraInterfazProps> = ({ onLoginSuccess
       const urlParams = new URLSearchParams(window.location.search);
       const campaignName = urlParams.get('campaign');
 
+      const isClientAdminRole = (r: string) => r === 'role-clientadmin' || r === 'role-client-admin' || r === 'ADMIN_CLIENTE' || r === 'admin';
+
       const dbUser = dbUsers.find(u => {
         const uClientName = u.client_name || u.clientName;
         const uRoleId = u.role_id || u.roleId;
         if (campaignName && uClientName && uClientName.toLowerCase().trim() === campaignName.toLowerCase().trim()) {
           return true;
         }
-        const mappedRole = uRoleId === 'role-clientadmin' ? 'candidato' : uRoleId;
+        const mappedRole = isClientAdminRole(uRoleId) ? 'candidato' : uRoleId;
         return allowedRoles.includes(mappedRole);
       }) || dbUsers.find(u => {
         const uRoleId = u.role_id || u.roleId;
-        const mappedRole = uRoleId === 'role-clientadmin' ? 'candidato' : uRoleId;
+        const mappedRole = isClientAdminRole(uRoleId) ? 'candidato' : uRoleId;
         return allowedRoles.includes(mappedRole);
       }) || dbUsers[0];
 
@@ -360,8 +362,8 @@ export const PrimeraInterfaz: React.FC<PrimeraInterfazProps> = ({ onLoginSuccess
 
       // Map admin-central client-admin role to local candidate views role
       const userRoleId = dbUser.role_id || dbUser.roleId;
-      const targetRole = userRoleId === 'role-clientadmin' ? 'candidato' : (userRoleId as UserRole);
-      const targetRoleName = userRoleId === 'role-clientadmin' ? 'Candidato Principal' : (dbUser.role_name || dbUser.roleName || 'Usuario');
+      const targetRole = isClientAdminRole(userRoleId) ? 'candidato' : (userRoleId as UserRole);
+      const targetRoleName = isClientAdminRole(userRoleId) ? 'Candidato Principal' : (dbUser.role_name || dbUser.roleName || 'Usuario');
       
       // XSS Sanitization for displayed usernames
       const userFirstName = dbUser.first_name || dbUser.firstName || '';
