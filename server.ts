@@ -1,11 +1,70 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
+import dotenv from 'dotenv';
 
-const PORT = 3000;
+// Import Mongoose models and connection
+import {
+  connectDB,
+  hashPassword,
+  ClientModel,
+  LicenseModel,
+  SubscriptionModel,
+  UserModel,
+  CampaignModel,
+  InvoiceModel,
+  AuditLogModel,
+  NotificationModel,
+  PlanModel,
+  ModuleModel,
+  RoleModel,
+  SessionModel,
+} from './models.js';
+dotenv.config();
+
+const PORT = Number(process.env.PORT) || 3001;
 const DB_FILE = path.join(process.cwd(), 'data_db.json');
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Helper to parse cookies from requests
+const parseCookies = (req: any) => {
+  const list: any = {};
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return list;
+  cookieHeader.split(';').forEach((cookie: string) => {
+    let [name, ...rest] = cookie.split('=');
+    name = name.trim();
+    if (!name) return;
+    const val = rest.join('=').trim();
+    list[name] = decodeURIComponent(val);
+  });
+  return list;
+};
+
+// Helper to map route collection names to Mongoose models
+function getModelByCollectionName(name: string): any {
+  switch (name) {
+    case 'clients': return ClientModel;
+    case 'licenses': return LicenseModel;
+    case 'subscriptions': return SubscriptionModel;
+    case 'users':
+    case 'users_list': return UserModel;
+    case 'campaigns': return CampaignModel;
+    case 'invoices': return InvoiceModel;
+    case 'audit_logs': return AuditLogModel;
+    case 'notifications': return NotificationModel;
+    case 'plans': return PlanModel;
+    case 'modules': return ModuleModel;
+    case 'roles': return RoleModel;
+    case 'sessions': return SessionModel;
+    default: throw new Error(`Unknown collection: ${name}`);
+  }
+}
 
 // Interface for database structure
 interface DatabaseSchema {
@@ -49,7 +108,7 @@ interface DatabaseSchema {
   };
 }
 
-// Initial default seed
+// Initial default seed for local file db
 const initialDbData: DatabaseSchema = {
   admin: {
     users: [
@@ -128,7 +187,7 @@ const initialDbData: DatabaseSchema = {
   }
 };
 
-// Helper: Read DB
+// Helper: Read local DB file
 function getDb(): DatabaseSchema {
   try {
     if (!fs.existsSync(DB_FILE)) {
@@ -143,7 +202,7 @@ function getDb(): DatabaseSchema {
   }
 }
 
-// Helper: Save DB
+// Helper: Save local DB file
 function saveDb(data: DatabaseSchema): void {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
@@ -153,8 +212,24 @@ function saveDb(data: DatabaseSchema): void {
 }
 
 async function startAppServer() {
+  // Connect to MongoDB
+  const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/campana_ganadora';
+  console.log(`Connecting to MongoDB (FUSION) at: ${mongoUri}`);
+  await connectDB(mongoUri);
+
   const app = express();
   app.use(express.json());
+
+  // CORS headers
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Client-ID');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
 
   // Initialize Gemini AI client server-side if key exists
   let aiClient: GoogleGenAI | null = null;
@@ -187,7 +262,283 @@ async function startAppServer() {
   });
 
   // ==========================================
-  // MODULE 1: GESTIÓN ADMINISTRATIVA APIs (ISOLATED)
+  // CUSTOM AUTHENTICATION API (SHARED MONGO)
+  // ==========================================
+
+  // Register
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const { email, password, name } = req.body;
+      const existingUser = await UserModel.findOne({ email }).lean();
+      if (existingUser) {
+        return res.status(400).json({ error: 'El usuario ya existe' });
+      }
+      
+      const newUserId = `usr-${Date.now()}`;
+      const nameParts = name.split(' ');
+      const firstName = nameParts[0] || 'Admin';
+      const lastName = nameParts.slice(1).join(' ') || 'CG';
+      
+      const user = await UserModel.create({
+        id: newUserId,
+        firstName,
+        lastName,
+        email,
+        password: hashPassword(password),
+        clientId: 'CLI-GLOBAL',
+        clientName: 'Administración Central',
+        roleId: 'role-super-admin',
+        roleName: 'Super Admin',
+        status: 'Activo',
+        lastAccessAt: new Date().toISOString(),
+        createdAt: new Date().toISOString().split('T')[0]
+      }) as any;
+      
+      res.setHeader('Set-Cookie', `session_token=${user.id}; Path=/; HttpOnly; SameSite=Lax`);
+      res.status(201).json({
+        user: {
+          id: user.id,
+          email: user.email,
+          user_metadata: { name: `${user.firstName} ${user.lastName}` },
+          role: 'Super Admin'
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Login
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { email, password, isOAuth } = req.body;
+      let user: any = await UserModel.findOne({ email }).lean();
+      
+      if (isOAuth) {
+        if (!user) {
+          user = await UserModel.create({
+            id: 'usr-admin-master',
+            firstName: 'Super',
+            lastName: 'Admin CG',
+            email: email || 'admin@campanaganadora.ai',
+            password: hashPassword('password'),
+            clientId: 'CLI-GLOBAL',
+            clientName: 'Administración Central',
+            roleId: 'role-super-admin',
+            roleName: 'Super Admin',
+            status: 'Activo',
+            lastAccessAt: new Date().toISOString(),
+            createdAt: new Date().toISOString().split('T')[0]
+          }) as any;
+        }
+      } else {
+        if (!user) {
+          return res.status(401).json({ error: 'Credenciales incorrectas. El correo no está registrado.' });
+        }
+        
+        if (user.password !== hashPassword(password)) {
+          return res.status(401).json({ error: 'Credenciales incorrectas. Contraseña inválida.' });
+        }
+      }
+      
+      res.setHeader('Set-Cookie', `session_token=${user.id}; Path=/; HttpOnly; SameSite=Lax`);
+      res.json({
+        user: {
+          id: user.id,
+          email: user.email,
+          user_metadata: { name: `${user.firstName} ${user.lastName}` },
+          role: user.roleName || 'Super Admin'
+        }
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Me
+  app.get('/api/auth/me', async (req, res) => {
+    try {
+      const cookies = parseCookies(req);
+      const token = cookies.session_token;
+      if (!token) {
+        return res.status(401).json({ error: 'No autenticado' });
+      }
+      
+      const user: any = await UserModel.findOne({ id: token }).lean();
+      if (!user) {
+        return res.status(401).json({ error: 'Sesión inválida' });
+      }
+      
+      res.json({
+        id: user.id,
+        email: user.email,
+        user_metadata: { name: `${user.firstName} ${user.lastName}` },
+        role: user.roleName || 'Super Admin'
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Logout
+  app.post('/api/auth/logout', (req, res) => {
+    res.setHeader('Set-Cookie', 'session_token=; Path=/; HttpOnly; Max-Age=0');
+    res.json({ success: true });
+  });
+
+  // ==========================================
+  // SIMULATED RPC GATEWAY
+  // ==========================================
+  app.post('/api/rpc/create_client_auth_user', async (req, res) => {
+    try {
+      const { p_email, p_password, p_first_name, p_last_name, p_client_id } = req.body;
+      
+      let user: any = await UserModel.findOne({ email: p_email }).lean();
+      if (user) {
+        return res.json(user.id);
+      }
+      
+      const newUserId = `usr-${Date.now()}`;
+      const newUser: any = await UserModel.create({
+        id: newUserId,
+        firstName: p_first_name,
+        lastName: p_last_name,
+        email: p_email,
+        password: hashPassword(p_password || 'password'),
+        clientId: p_client_id,
+        clientName: 'Organización Creada',
+        roleId: 'role-client-admin',
+        roleName: 'Administrador de Campaña',
+        status: 'Activo',
+        lastAccessAt: 'Nunca',
+        createdAt: new Date().toISOString().split('T')[0]
+      });
+      
+      res.json(newUser.id);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ==========================================
+  // GENERIC REST CRUD API FOR ALL MONGO COLLECTIONS
+  // ==========================================
+
+  // Query and list documents
+  app.get('/api/:collection', async (req, res) => {
+    try {
+      const { collection } = req.params;
+      const model = getModelByCollectionName(collection);
+      
+      const sortQuery = collection === 'audit_logs' ? { timestamp: -1 } : {};
+      const data = await model.find({}).sort(sortQuery as any).lean();
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Insert/Upsert document(s)
+  app.post('/api/:collection', async (req, res) => {
+    try {
+      const { collection } = req.params;
+      const model = getModelByCollectionName(collection);
+      
+      const body = req.body;
+      let data;
+      
+      if (!Array.isArray(body)) {
+        if (!body.id) {
+          if (collection === 'clients') {
+            body.id = `CLI-2026-${Math.floor(100 + Math.random() * 900)}`;
+          } else {
+            body.id = `obj-${Date.now()}`;
+          }
+        }
+        if (!body.createdAt && !body.created_at) {
+          body.createdAt = new Date().toISOString().split('T')[0];
+        }
+        data = await model.findOneAndUpdate({ id: body.id }, body, { upsert: true, new: true }).lean();
+      } else {
+        // Bulk upsert
+        data = await Promise.all(body.map(async (item) => {
+          if (!item.id) {
+            item.id = `obj-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          }
+          if (!item.createdAt && !item.created_at) {
+            item.createdAt = new Date().toISOString().split('T')[0];
+          }
+          return model.findOneAndUpdate({ id: item.id }, item, { upsert: true, new: true }).lean();
+        }));
+      }
+      res.status(201).json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Bulk update
+  app.put('/api/:collection', async (req, res) => {
+    try {
+      const { collection } = req.params;
+      const { field, value } = req.query;
+      const model = getModelByCollectionName(collection);
+      
+      if (field && value) {
+        const result = await model.updateMany({ [field as string]: value }, req.body);
+        return res.json({ success: true, count: result.modifiedCount });
+      }
+      res.status(400).json({ error: 'Missing field or value for bulk update' });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update specific document
+  app.put('/api/:collection/:id', async (req, res) => {
+    try {
+      const { collection, id } = req.params;
+      const model = getModelByCollectionName(collection);
+      const data = await model.findOneAndUpdate({ id }, req.body, { new: true }).lean();
+      if (!data) return res.status(404).json({ error: 'Document not found' });
+      res.json(data);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Bulk delete
+  app.delete('/api/:collection', async (req, res) => {
+    try {
+      const { collection } = req.params;
+      const { field, value } = req.query;
+      const model = getModelByCollectionName(collection);
+      
+      if (field && value) {
+        const result = await model.deleteMany({ [field as string]: value });
+        return res.json({ success: true, count: result.deletedCount });
+      }
+      res.status(400).json({ error: 'Missing field or value for bulk delete' });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete specific document
+  app.delete('/api/:collection/:id', async (req, res) => {
+    try {
+      const { collection, id } = req.params;
+      const model = getModelByCollectionName(collection);
+      const result = await model.deleteOne({ id });
+      if (result.deletedCount === 0) return res.status(404).json({ error: 'Document not found' });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ==========================================
+  // MODULE 1: GESTIÓN ADMINISTRATIVA LOCAL APIs (FILE BACKUP)
   // ==========================================
   app.get('/api/admin/users', (req, res) => {
     const db = getDb();
@@ -285,7 +636,7 @@ async function startAppServer() {
   });
 
   // ==========================================
-  // MODULE 2: GESTIÓN ESTRATÉGICA APIs (ISOLATED)
+  // MODULE 2: GESTIÓN ESTRATÉGICA LOCAL APIs (FILE BACKUP)
   // ==========================================
   app.get('/api/strategic/dafo', (req, res) => {
     const db = getDb();
@@ -368,7 +719,6 @@ async function startAppServer() {
       console.error('Gemini API call failed, using internal strategy engine fallback:', e);
     }
 
-    // Fallback strategy generator based on DAFO data in strategic module
     const dafoCount = db.strategic.dafoEntries.length;
     const totalBudget = db.strategic.budgets.reduce((acc, b) => acc + b.allocated, 0);
     const fallbackText = 
@@ -382,7 +732,7 @@ async function startAppServer() {
   });
 
   // ==========================================
-  // MODULE 3: GESTIÓN TERRITORIAL APIs (ISOLATED)
+  // MODULE 3: GESTIÓN TERRITORIAL LOCAL APIs (FILE BACKUP)
   // ==========================================
   app.get('/api/territorial/voters', (req, res) => {
     const db = getDb();
@@ -393,7 +743,6 @@ async function startAppServer() {
     const { name, cedula, puesto, mesa, leaderName } = req.body;
     const db = getDb();
 
-    // Check strict duplicate CC constraint inside campaign
     const existing = db.territorial.voters.find((v) => v.cedula === cedula);
     if (existing) {
       return res.status(400).json({ 
@@ -416,7 +765,6 @@ async function startAppServer() {
     res.json(newVoter);
   });
 
-  // Dedicated voter lookup endpoint for database & external API integration
   app.get('/api/territorial/voters/lookup', (req, res) => {
     const { cedula, query } = req.query;
     const searchTerm = (cedula || query || '').toString().trim().toLowerCase();

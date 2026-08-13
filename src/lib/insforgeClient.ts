@@ -1,8 +1,187 @@
-/// <reference types="vite/client" />
-import { createClient } from '@insforge/sdk';
+// Mock client that redirects database and RPC calls to the local FUSION Express server API
+export const insforge = {
+  database: {
+    from(table: string) {
+      // Map 'users_list' table name to users API endpoint
+      const endpoint = table === 'users_list' ? 'users' : table;
+      
+      return {
+        select(fields: string = '*') {
+          let filters: Array<{ field: string; value: any }> = [];
+          let isSingle = false;
+          let limitVal: number | null = null;
 
-// Initialize official InsForge client for "CAMPAÑA ELECTORAL" project
-export const insforge = createClient({
-  baseUrl: import.meta.env.VITE_INSFORGE_BASE_URL || 'https://avy66p8w.us-east.insforge.app',
-  anonKey: import.meta.env.VITE_INSFORGE_ANON_KEY || 'ik_671a4094c023f2c25c158e629973a5f3',
-});
+          const execute = async () => {
+            try {
+              // Build the URL based on filters
+              let url = `/api/${endpoint}`;
+              
+              // Optimistic quick check if we filter by ID
+              const idFilter = filters.find(f => f.field === 'id');
+              if (idFilter) {
+                url = `/api/${endpoint}/${idFilter.value}`;
+              }
+
+              const res = await fetch(url);
+              if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+              let data = await res.json();
+
+              // Apply filtering in memory to ensure perfect behavior
+              if (Array.isArray(data)) {
+                filters.forEach(f => {
+                  data = data.filter((item: any) => String(item[f.field]) === String(f.value));
+                });
+                if (isSingle) {
+                  data = data[0] || null;
+                } else if (limitVal !== null) {
+                  data = data.slice(0, limitVal);
+                }
+              } else {
+                // If single object returned directly
+                if (isSingle && Array.isArray(data)) {
+                  data = data[0] || null;
+                }
+              }
+
+              return { data, error: null };
+            } catch (error: any) {
+              console.error(`Error in select for ${table}:`, error);
+              return { data: null, error };
+            }
+          };
+
+          // Return chainable thenable object
+          return {
+            eq(field: string, value: any) {
+              filters.push({ field, value });
+              return this;
+            },
+            limit(limitNum: number) {
+              limitVal = limitNum;
+              return this;
+            },
+            single() {
+              isSingle = true;
+              return this;
+            },
+            then(onfulfilled?: (value: any) => any, onrejected?: (reason: any) => any) {
+              return execute().then(onfulfilled, onrejected);
+            },
+            catch(onrejected?: (reason: any) => any) {
+              return execute().catch(onrejected);
+            }
+          };
+        },
+        
+        insert(records: any[]) {
+          return (async () => {
+            try {
+              const res = await fetch(`/api/${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(records)
+              });
+              if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+              const data = await res.json();
+              return { data, error: null };
+            } catch (error: any) {
+              console.error(`Error in insert for ${table}:`, error);
+              return { data: null, error };
+            }
+          })();
+        },
+
+        upsert(records: any[]) {
+          return (async () => {
+            try {
+              const res = await fetch(`/api/${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(records)
+              });
+              if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+              const data = await res.json();
+              return { data, error: null };
+            } catch (error: any) {
+              console.error(`Error in upsert for ${table}:`, error);
+              return { data: null, error };
+            }
+          })();
+        },
+        
+        update(updateData: any) {
+          return {
+            eq(field: string, value: any) {
+              return (async () => {
+                try {
+                  const url = field === 'id' 
+                    ? `/api/${endpoint}/${value}` 
+                    : `/api/${endpoint}?field=${field}&value=${value}`;
+                  
+                  const res = await fetch(url, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updateData)
+                  });
+                  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+                  const data = await res.json();
+                  return { data, error: null };
+                } catch (error: any) {
+                  console.error(`Error in update for ${table}:`, error);
+                  return { data: null, error };
+                }
+              })();
+            }
+          };
+        },
+        
+        delete() {
+          return {
+            eq(field: string, value: any) {
+              return (async () => {
+                try {
+                  const url = field === 'id' 
+                    ? `/api/${endpoint}/${value}` 
+                    : `/api/${endpoint}?field=${field}&value=${value}`;
+                    
+                  const res = await fetch(url, {
+                    method: 'DELETE'
+                  });
+                  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+                  const data = await res.json();
+                  return { data, error: null };
+                } catch (error: any) {
+                  console.error(`Error in delete for ${table}:`, error);
+                  return { data: null, error };
+                }
+              })();
+            }
+          };
+        }
+      };
+    }
+  },
+  
+  emails: {
+    async send(payload: any) {
+      console.log('📧 Mock email sent successfully:', payload);
+      return { data: { success: true }, error: null };
+    }
+  },
+
+  async rpc(name: string, params: any) {
+    try {
+      const res = await fetch(`/api/rpc/${name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+      });
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      const data = await res.json();
+      return { data, error: null };
+    } catch (error: any) {
+      console.error(`Error in RPC ${name}:`, error);
+      return { data: null, error };
+    }
+  }
+};
