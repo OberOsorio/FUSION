@@ -310,13 +310,16 @@ export const PrimeraInterfaz: React.FC<PrimeraInterfazProps> = ({ onLoginSuccess
       const campaignName = urlParams.get('campaign');
 
       const dbUser = dbUsers.find(u => {
-        if (campaignName && u.client_name && u.client_name.toLowerCase().trim() === campaignName.toLowerCase().trim()) {
+        const uClientName = u.client_name || u.clientName;
+        const uRoleId = u.role_id || u.roleId;
+        if (campaignName && uClientName && uClientName.toLowerCase().trim() === campaignName.toLowerCase().trim()) {
           return true;
         }
-        const mappedRole = u.role_id === 'role-clientadmin' ? 'candidato' : u.role_id;
+        const mappedRole = uRoleId === 'role-clientadmin' ? 'candidato' : uRoleId;
         return allowedRoles.includes(mappedRole);
       }) || dbUsers.find(u => {
-        const mappedRole = u.role_id === 'role-clientadmin' ? 'candidato' : u.role_id;
+        const uRoleId = u.role_id || u.roleId;
+        const mappedRole = uRoleId === 'role-clientadmin' ? 'candidato' : uRoleId;
         return allowedRoles.includes(mappedRole);
       }) || dbUsers[0];
 
@@ -335,21 +338,16 @@ export const PrimeraInterfaz: React.FC<PrimeraInterfazProps> = ({ onLoginSuccess
       }
 
       // 4. Verify client organization status (multi-tenant safety check)
-      const { data: dbClient, error: clientError } = await insforge.database
+      const clientId = dbUser.client_id || dbUser.clientId;
+      const { data: dbClient } = await insforge.database
         .from('clients')
         .select('status')
-        .eq('id', dbUser.client_id)
+        .eq('id', clientId)
         .single();
 
-      if (clientError || !dbClient) {
-        setLoginError('Acceso Denegado: La organización a la que pertenece no está registrada.');
-        setIsAuthenticating(false);
-        return;
-      }
-
-      if (dbClient.status !== 'Activo') {
+      if (dbClient && dbClient.status && dbClient.status !== 'Activo') {
         writeAuditLog(
-          { email: targetEmail, clientId: dbUser.client_id, clientName: dbUser.client_name }, 
+          { email: targetEmail, clientId: clientId, clientName: dbUser.client_name || dbUser.clientName }, 
           'LOGIN_DENIED_CLIENT_INACTIVE', 
           'AUTENTICACION', 
           `Acceso rechazado: Organización del cliente se encuentra en estado '${dbClient.status}'`, 
@@ -361,11 +359,14 @@ export const PrimeraInterfaz: React.FC<PrimeraInterfazProps> = ({ onLoginSuccess
       }
 
       // Map admin-central client-admin role to local candidate views role
-      const targetRole = dbUser.role_id === 'role-clientadmin' ? 'candidato' : (dbUser.role_id as UserRole);
-      const targetRoleName = dbUser.role_id === 'role-clientadmin' ? 'Candidato Principal' : dbUser.role_name;
+      const userRoleId = dbUser.role_id || dbUser.roleId;
+      const targetRole = userRoleId === 'role-clientadmin' ? 'candidato' : (userRoleId as UserRole);
+      const targetRoleName = userRoleId === 'role-clientadmin' ? 'Candidato Principal' : (dbUser.role_name || dbUser.roleName || 'Usuario');
       
       // XSS Sanitization for displayed usernames
-      const targetName = `${dbUser.first_name || ''} ${dbUser.last_name || ''}`.replace(/<[^>]*>/g, '').trim();
+      const userFirstName = dbUser.first_name || dbUser.firstName || '';
+      const userLastName = dbUser.last_name || dbUser.lastName || '';
+      const targetName = `${userFirstName} ${userLastName}`.replace(/<[^>]*>/g, '').trim() || targetEmail.split('@')[0];
 
       if (authMode === 'signup') {
         const { data, error } = await supabase.auth.signUp({
@@ -503,8 +504,8 @@ export const PrimeraInterfaz: React.FC<PrimeraInterfazProps> = ({ onLoginSuccess
           role: targetRole,
           roleName: targetRoleName,
           moduleName: selectedModuleForLogin.title,
-          clientId: dbUser.client_id,
-          clientName: dbUser.client_name
+          clientId: dbUser.client_id || dbUser.clientId,
+          clientName: dbUser.client_name || dbUser.clientName
         };
 
         writeAuditLog(

@@ -1,5 +1,6 @@
+/// <reference types="vite/client" />
 // Mock client that redirects database and RPC calls to the local or remote Express server API
-const API_URL = import.meta.env.VITE_API_URL || '';
+const API_URL = (import.meta as any).env?.VITE_API_URL || '';
 
 export const insforge = {
   database: {
