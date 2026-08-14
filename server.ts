@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import mongoose from 'mongoose';
 
 // Import Mongoose models and connection
 import {
@@ -211,6 +212,65 @@ function saveDb(data: DatabaseSchema): void {
   }
 }
 
+function isMongoConnected(): boolean {
+  return mongoose.connection.readyState === 1;
+}
+
+function getLocalCollection(collectionName: string): any[] {
+  const db = getDb() as any;
+  if (!db.collections) {
+    db.collections = {};
+  }
+  const name = collectionName === 'users_list' ? 'users' : collectionName;
+  if (!db.collections[name]) {
+    db.collections[name] = [];
+    
+    // Seed default admin users if the users collection is created empty
+    if (name === 'users') {
+      db.collections[name] = [
+        {
+          id: 'u-admin-1',
+          firstName: 'Santiago',
+          lastName: 'Pérez',
+          email: 'admin@campana.ai',
+          password: hashPassword('admin2026'),
+          roleId: 'admin',
+          roleName: 'Gestión Administrativa',
+          clientId: 'client-101',
+          clientName: 'Campaña Principal',
+          status: 'Activo',
+          createdAt: new Date().toISOString().split('T')[0]
+        },
+        {
+          id: 'u-admin-2',
+          firstName: 'Ober',
+          lastName: 'Osorio',
+          email: 'ober.osorio@campana.ai',
+          password: hashPassword('password'),
+          roleId: 'admin',
+          roleName: 'Gestión Administrativa',
+          clientId: 'client-101',
+          clientName: 'Campaña Principal',
+          status: 'Activo',
+          createdAt: new Date().toISOString().split('T')[0]
+        }
+      ];
+    }
+    saveDb(db);
+  }
+  return db.collections[name];
+}
+
+function saveLocalCollection(collectionName: string, items: any[]) {
+  const db = getDb() as any;
+  if (!db.collections) {
+    db.collections = {};
+  }
+  const name = collectionName === 'users_list' ? 'users' : collectionName;
+  db.collections[name] = items;
+  saveDb(db);
+}
+
 async function startAppServer() {
   // Connect to MongoDB
   const mongoUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/campana_ganadora';
@@ -260,8 +320,7 @@ async function startAppServer() {
       timestamp: new Date().toISOString()
     });
   });
-
-  // ==========================================
+       // ==========================================
   // CUSTOM AUTHENTICATION API (SHARED MONGO)
   // ==========================================
 
@@ -269,17 +328,12 @@ async function startAppServer() {
   app.post('/api/auth/register', async (req, res) => {
     try {
       const { email, password, name } = req.body;
-      const existingUser = await UserModel.findOne({ email }).lean();
-      if (existingUser) {
-        return res.status(400).json({ error: 'El usuario ya existe' });
-      }
-      
-      const newUserId = `usr-${Date.now()}`;
       const nameParts = name.split(' ');
       const firstName = nameParts[0] || 'Admin';
       const lastName = nameParts.slice(1).join(' ') || 'CG';
+      const newUserId = `usr-${Date.now()}`;
       
-      const user = await UserModel.create({
+      const userObj = {
         id: newUserId,
         firstName,
         lastName,
@@ -292,14 +346,29 @@ async function startAppServer() {
         status: 'Activo',
         lastAccessAt: new Date().toISOString(),
         createdAt: new Date().toISOString().split('T')[0]
-      }) as any;
+      };
+
+      if (isMongoConnected()) {
+        const existingUser = await UserModel.findOne({ email }).lean();
+        if (existingUser) {
+          return res.status(400).json({ error: 'El usuario ya existe' });
+        }
+        await UserModel.create(userObj);
+      } else {
+        const localUsers = getLocalCollection('users');
+        if (localUsers.some((u: any) => u.email.toLowerCase() === email.toLowerCase())) {
+          return res.status(400).json({ error: 'El usuario ya existe' });
+        }
+        localUsers.push(userObj);
+        saveLocalCollection('users', localUsers);
+      }
       
-      res.setHeader('Set-Cookie', `session_token=${user.id}; Path=/; HttpOnly; SameSite=Lax`);
+      res.setHeader('Set-Cookie', `session_token=${newUserId}; Path=/; HttpOnly; SameSite=Lax`);
       res.status(201).json({
         user: {
-          id: user.id,
-          email: user.email,
-          user_metadata: { name: `${user.firstName} ${user.lastName}` },
+          id: newUserId,
+          email,
+          user_metadata: { name: `${firstName} ${lastName}` },
           role: 'Super Admin'
         }
       });
@@ -312,11 +381,18 @@ async function startAppServer() {
   app.post('/api/auth/login', async (req, res) => {
     try {
       const { email, password, isOAuth } = req.body;
-      let user: any = await UserModel.findOne({ email }).lean();
+      let user: any = null;
+
+      if (isMongoConnected()) {
+        user = await UserModel.findOne({ email }).lean();
+      } else {
+        const localUsers = getLocalCollection('users');
+        user = localUsers.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
+      }
       
       if (isOAuth) {
         if (!user) {
-          user = await UserModel.create({
+          user = {
             id: 'usr-admin-master',
             firstName: 'Super',
             lastName: 'Admin CG',
@@ -329,14 +405,22 @@ async function startAppServer() {
             status: 'Activo',
             lastAccessAt: new Date().toISOString(),
             createdAt: new Date().toISOString().split('T')[0]
-          }) as any;
+          };
+          if (isMongoConnected()) {
+            await UserModel.create(user);
+          } else {
+            const localUsers = getLocalCollection('users');
+            localUsers.push(user);
+            saveLocalCollection('users', localUsers);
+          }
         }
       } else {
         if (!user) {
           return res.status(401).json({ error: 'Credenciales incorrectas. El correo no está registrado.' });
         }
         
-        if (user.password !== hashPassword(password)) {
+        const storedPassword = user.password || user.passwordHash;
+        if (storedPassword !== hashPassword(password) && user.password !== password) {
           return res.status(401).json({ error: 'Credenciales incorrectas. Contraseña inválida.' });
         }
       }
@@ -346,8 +430,8 @@ async function startAppServer() {
         user: {
           id: user.id,
           email: user.email,
-          user_metadata: { name: `${user.firstName} ${user.lastName}` },
-          role: user.roleName || 'Super Admin'
+          user_metadata: { name: `${user.firstName || user.first_name || ''} ${user.lastName || user.last_name || ''}`.trim() },
+          role: user.roleName || user.role || 'Super Admin'
         }
       });
     } catch (error: any) {
@@ -364,7 +448,14 @@ async function startAppServer() {
         return res.status(401).json({ error: 'No autenticado' });
       }
       
-      const user: any = await UserModel.findOne({ id: token }).lean();
+      let user: any = null;
+      if (isMongoConnected()) {
+        user = await UserModel.findOne({ id: token }).lean();
+      } else {
+        const localUsers = getLocalCollection('users');
+        user = localUsers.find((u: any) => u.id === token);
+      }
+      
       if (!user) {
         return res.status(401).json({ error: 'Sesión inválida' });
       }
@@ -372,8 +463,8 @@ async function startAppServer() {
       res.json({
         id: user.id,
         email: user.email,
-        user_metadata: { name: `${user.firstName} ${user.lastName}` },
-        role: user.roleName || 'Super Admin'
+        user_metadata: { name: `${user.firstName || user.first_name || ''} ${user.lastName || user.last_name || ''}`.trim() },
+        role: user.roleName || user.role || 'Super Admin'
       });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -393,13 +484,20 @@ async function startAppServer() {
     try {
       const { p_email, p_password, p_first_name, p_last_name, p_client_id } = req.body;
       
-      let user: any = await UserModel.findOne({ email: p_email }).lean();
+      let user: any = null;
+      if (isMongoConnected()) {
+        user = await UserModel.findOne({ email: p_email }).lean();
+      } else {
+        const localUsers = getLocalCollection('users');
+        user = localUsers.find((u: any) => u.email.toLowerCase() === p_email.toLowerCase());
+      }
+
       if (user) {
         return res.json(user.id);
       }
       
       const newUserId = `usr-${Date.now()}`;
-      const newUser: any = await UserModel.create({
+      const newUserObj = {
         id: newUserId,
         firstName: p_first_name,
         lastName: p_last_name,
@@ -412,9 +510,17 @@ async function startAppServer() {
         status: 'Activo',
         lastAccessAt: 'Nunca',
         createdAt: new Date().toISOString().split('T')[0]
-      });
+      };
+
+      if (isMongoConnected()) {
+        await UserModel.create(newUserObj);
+      } else {
+        const localUsers = getLocalCollection('users');
+        localUsers.push(newUserObj);
+        saveLocalCollection('users', localUsers);
+      }
       
-      res.json(newUser.id);
+      res.json(newUserId);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -428,11 +534,19 @@ async function startAppServer() {
   app.get('/api/:collection', async (req, res) => {
     try {
       const { collection } = req.params;
-      const model = getModelByCollectionName(collection);
       
-      const sortQuery = collection === 'audit_logs' ? { timestamp: -1 } : {};
-      const data = await model.find({}).sort(sortQuery as any).lean();
-      res.json(data);
+      if (isMongoConnected()) {
+        const model = getModelByCollectionName(collection);
+        const sortQuery = collection === 'audit_logs' ? { timestamp: -1 } : {};
+        const data = await model.find({}).sort(sortQuery as any).lean();
+        res.json(data);
+      } else {
+        const data = getLocalCollection(collection);
+        if (collection === 'audit_logs') {
+          data.sort((a: any, b: any) => new Date(b.timestamp || b.created_at || 0).getTime() - new Date(a.timestamp || a.created_at || 0).getTime());
+        }
+        res.json(data);
+      }
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -442,36 +556,62 @@ async function startAppServer() {
   app.post('/api/:collection', async (req, res) => {
     try {
       const { collection } = req.params;
-      const model = getModelByCollectionName(collection);
-      
       const body = req.body;
-      let data;
       
-      if (!Array.isArray(body)) {
-        if (!body.id) {
+      const prepareItem = (item: any) => {
+        if (!item.id) {
           if (collection === 'clients') {
-            body.id = `CLI-2026-${Math.floor(100 + Math.random() * 900)}`;
+            item.id = `CLI-2026-${Math.floor(100 + Math.random() * 900)}`;
           } else {
-            body.id = `obj-${Date.now()}`;
-          }
-        }
-        if (!body.createdAt && !body.created_at) {
-          body.createdAt = new Date().toISOString().split('T')[0];
-        }
-        data = await model.findOneAndUpdate({ id: body.id }, body, { upsert: true, new: true }).lean();
-      } else {
-        // Bulk upsert
-        data = await Promise.all(body.map(async (item) => {
-          if (!item.id) {
             item.id = `obj-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
           }
-          if (!item.createdAt && !item.created_at) {
-            item.createdAt = new Date().toISOString().split('T')[0];
+        }
+        if (!item.createdAt && !item.created_at) {
+          item.createdAt = new Date().toISOString().split('T')[0];
+        }
+        return item;
+      };
+
+      if (isMongoConnected()) {
+        const model = getModelByCollectionName(collection);
+        let data;
+        if (!Array.isArray(body)) {
+          const item = prepareItem(body);
+          data = await model.findOneAndUpdate({ id: item.id }, item, { upsert: true, new: true }).lean();
+        } else {
+          data = await Promise.all(body.map(async (item) => {
+            const prepped = prepareItem(item);
+            return model.findOneAndUpdate({ id: prepped.id }, prepped, { upsert: true, new: true }).lean();
+          }));
+        }
+        res.status(201).json(data);
+      } else {
+        const items = getLocalCollection(collection);
+        let responseData;
+        if (!Array.isArray(body)) {
+          const item = prepareItem(body);
+          const index = items.findIndex((i: any) => i.id === item.id);
+          if (index !== -1) {
+            items[index] = { ...items[index], ...item };
+          } else {
+            items.push(item);
           }
-          return model.findOneAndUpdate({ id: item.id }, item, { upsert: true, new: true }).lean();
-        }));
+          responseData = item;
+        } else {
+          responseData = body.map((item) => {
+            const prepped = prepareItem(item);
+            const index = items.findIndex((i: any) => i.id === prepped.id);
+            if (index !== -1) {
+              items[index] = { ...items[index], ...prepped };
+            } else {
+              items.push(prepped);
+            }
+            return prepped;
+          });
+        }
+        saveLocalCollection(collection, items);
+        res.status(201).json(responseData);
       }
-      res.status(201).json(data);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -482,13 +622,28 @@ async function startAppServer() {
     try {
       const { collection } = req.params;
       const { field, value } = req.query;
-      const model = getModelByCollectionName(collection);
       
-      if (field && value) {
+      if (!field || !value) {
+        return res.status(400).json({ error: 'Missing field or value for bulk update' });
+      }
+
+      if (isMongoConnected()) {
+        const model = getModelByCollectionName(collection);
         const result = await model.updateMany({ [field as string]: value }, req.body);
         return res.json({ success: true, count: result.modifiedCount });
+      } else {
+        const items = getLocalCollection(collection);
+        let count = 0;
+        const updated = items.map((item: any) => {
+          if (String(item[field as string]) === String(value)) {
+            count++;
+            return { ...item, ...req.body };
+          }
+          return item;
+        });
+        saveLocalCollection(collection, updated);
+        return res.json({ success: true, count });
       }
-      res.status(400).json({ error: 'Missing field or value for bulk update' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -498,10 +653,20 @@ async function startAppServer() {
   app.put('/api/:collection/:id', async (req, res) => {
     try {
       const { collection, id } = req.params;
-      const model = getModelByCollectionName(collection);
-      const data = await model.findOneAndUpdate({ id }, req.body, { new: true }).lean();
-      if (!data) return res.status(404).json({ error: 'Document not found' });
-      res.json(data);
+      
+      if (isMongoConnected()) {
+        const model = getModelByCollectionName(collection);
+        const data = await model.findOneAndUpdate({ id }, req.body, { new: true }).lean();
+        if (!data) return res.status(404).json({ error: 'Document not found' });
+        res.json(data);
+      } else {
+        const items = getLocalCollection(collection);
+        const index = items.findIndex((i: any) => i.id === id);
+        if (index === -1) return res.status(404).json({ error: 'Document not found' });
+        items[index] = { ...items[index], ...req.body };
+        saveLocalCollection(collection, items);
+        res.json(items[index]);
+      }
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -512,13 +677,22 @@ async function startAppServer() {
     try {
       const { collection } = req.params;
       const { field, value } = req.query;
-      const model = getModelByCollectionName(collection);
       
-      if (field && value) {
+      if (!field || !value) {
+        return res.status(400).json({ error: 'Missing field or value for bulk delete' });
+      }
+
+      if (isMongoConnected()) {
+        const model = getModelByCollectionName(collection);
         const result = await model.deleteMany({ [field as string]: value });
         return res.json({ success: true, count: result.deletedCount });
+      } else {
+        const items = getLocalCollection(collection);
+        const initialCount = items.length;
+        const filtered = items.filter((item: any) => String(item[field as string]) !== String(value));
+        saveLocalCollection(collection, filtered);
+        return res.json({ success: true, count: initialCount - filtered.length });
       }
-      res.status(400).json({ error: 'Missing field or value for bulk delete' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -528,10 +702,21 @@ async function startAppServer() {
   app.delete('/api/:collection/:id', async (req, res) => {
     try {
       const { collection, id } = req.params;
-      const model = getModelByCollectionName(collection);
-      const result = await model.deleteOne({ id });
-      if (result.deletedCount === 0) return res.status(404).json({ error: 'Document not found' });
-      res.json({ success: true });
+      if (isMongoConnected()) {
+        const model = getModelByCollectionName(collection);
+        const result = await model.deleteOne({ id });
+        if (result.deletedCount === 0) return res.status(404).json({ error: 'Document not found' });
+        res.json({ success: true });
+      } else {
+        const items = getLocalCollection(collection);
+        const initialLength = items.length;
+        const filtered = items.filter((i: any) => i.id !== id);
+        if (filtered.length === initialLength) {
+          return res.status(404).json({ error: 'Document not found' });
+        }
+        saveLocalCollection(collection, filtered);
+        res.json({ success: true });
+      }
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
