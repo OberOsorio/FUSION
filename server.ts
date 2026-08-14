@@ -23,6 +23,7 @@ import {
   ModuleModel,
   RoleModel,
   SessionModel,
+  DemoLeadModel,
 } from './models.js';
 dotenv.config();
 
@@ -63,6 +64,8 @@ function getModelByCollectionName(name: string): any {
     case 'modules': return ModuleModel;
     case 'roles': return RoleModel;
     case 'sessions': return SessionModel;
+    case 'demo_leads':
+    case 'demo_lead': return DemoLeadModel;
     default: throw new Error(`Unknown collection: ${name}`);
   }
 }
@@ -434,6 +437,135 @@ async function startAppServer() {
           role: user.roleName || user.role || 'Super Admin'
         }
       });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Health check endpoint for MongoDB status
+  app.get('/api/health', (req, res) => {
+    res.json({
+      status: 'ok',
+      databaseConnected: isMongoConnected(),
+      service: 'Campaña Ganadora AI - FUSION (MongoDB)',
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // Client registration endpoint (replaces Supabase database workflow)
+  app.post('/api/auth/register-client', async (req, res) => {
+    try {
+      const { fullName, email, password, campaignName, phone, department } = req.body;
+      
+      if (isMongoConnected()) {
+        // 1. Check if user already exists
+        const existingUser = await UserModel.findOne({ email }).lean();
+        if (existingUser) {
+          return res.status(400).json({ error: 'Este correo electrónico ya está registrado. Usa otro o accede al Panel.' });
+        }
+        
+        // 2. Create the client organization
+        const clientId = `CLI-2026-${Math.floor(100 + Math.random() * 900)}`;
+        await ClientModel.create({
+          id: clientId,
+          organizationName: campaignName,
+          organization_name: campaignName,
+          responsibleName: fullName,
+          responsible_name: fullName,
+          email: email,
+          phone: phone || '',
+          department: department || 'Colombia',
+          status: 'Activo',
+          createdAt: new Date().toISOString().split('T')[0],
+          created_at: new Date().toISOString().split('T')[0]
+        } as any);
+        
+        // 3. Create the user
+        const newUserId = `usr-${Date.now()}`;
+        const hashedPassword = hashPassword(password);
+        await UserModel.create({
+          id: newUserId,
+          firstName: fullName.split(' ')[0] || 'Admin',
+          lastName: fullName.split(' ').slice(1).join(' ') || 'CG',
+          email,
+          password: hashedPassword,
+          clientId: clientId,
+          clientName: campaignName,
+          roleId: 'role-clientadmin',
+          roleName: 'Administrador del Cliente',
+          status: 'Activo',
+          createdAt: new Date().toISOString().split('T')[0],
+          created_at: new Date().toISOString().split('T')[0]
+        } as any);
+        
+        // 4. Save demo lead
+        await DemoLeadModel.create({
+          id: `lead-${Date.now()}`,
+          fullName,
+          email,
+          phone: phone || '',
+          campaignType: campaignName,
+          department: department || 'Colombia',
+          notes: 'Registro automático desde landing (MongoDB)',
+          createdAt: new Date().toISOString().split('T')[0]
+        } as any);
+        
+        res.status(201).json({ success: true });
+      } else {
+        // Fallback for local memory storage
+        const localUsers = getLocalCollection('users');
+        if (localUsers.some((u: any) => u.email.toLowerCase() === email.toLowerCase())) {
+          return res.status(400).json({ error: 'Este correo electrónico ya está registrado. Usa otro o accede al Panel.' });
+        }
+        
+        const clientId = `CLI-2026-${Math.floor(100 + Math.random() * 900)}`;
+        const clientObj = {
+          id: clientId,
+          organizationName: campaignName,
+          responsibleName: fullName,
+          email: email,
+          phone: phone || '',
+          department: department || 'Colombia',
+          status: 'Activo',
+          createdAt: new Date().toISOString().split('T')[0]
+        };
+        const localClients = getLocalCollection('clients');
+        localClients.push(clientObj);
+        saveLocalCollection('clients', localClients);
+        
+        const newUserId = `usr-${Date.now()}`;
+        const userObj = {
+          id: newUserId,
+          firstName: fullName.split(' ')[0] || 'Admin',
+          lastName: fullName.split(' ').slice(1).join(' ') || 'CG',
+          email,
+          password: hashPassword(password),
+          clientId: clientId,
+          clientName: campaignName,
+          roleId: 'role-clientadmin',
+          roleName: 'Administrador del Cliente',
+          status: 'Activo',
+          createdAt: new Date().toISOString().split('T')[0]
+        };
+        localUsers.push(userObj);
+        saveLocalCollection('users', localUsers);
+        
+        const leadObj = {
+          id: `lead-${Date.now()}`,
+          fullName,
+          email,
+          phone: phone || '',
+          campaignType: campaignName,
+          department: department || 'Colombia',
+          notes: 'Registro automático desde landing (Local Memory)',
+          createdAt: new Date().toISOString().split('T')[0]
+        };
+        const localLeads = getLocalCollection('demo_leads');
+        localLeads.push(leadObj);
+        saveLocalCollection('demo_leads', localLeads);
+        
+        res.status(201).json({ success: true });
+      }
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

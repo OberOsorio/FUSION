@@ -429,7 +429,25 @@ export const PrimeraInterfaz: React.FC<PrimeraInterfazProps> = ({ onLoginSuccess
         let isPasswordCorrect = false;
 
         const dbUserPassword = dbUser.password || dbUser.passwordHash;
-        if (dbUserPassword && (dbUserPassword === targetPassword || dbUserPassword === 'password' || dbUserPassword === 'admin2026' || dbUserPassword === 'estrategia2026' || dbUserPassword === 'territorio2026')) {
+
+        // Helper to hash password using SHA-256 (Web Crypto API)
+        const sha256 = async (message: string) => {
+          const msgBuffer = new TextEncoder().encode(message);
+          const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
+          const hashArray = Array.from(new Uint8Array(hashBuffer));
+          return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        };
+
+        const targetPasswordHash = await sha256(targetPassword);
+
+        if (dbUserPassword && (
+          dbUserPassword === targetPassword || 
+          dbUserPassword === targetPasswordHash ||
+          dbUserPassword === 'password' || 
+          dbUserPassword === 'admin2026' || 
+          dbUserPassword === 'estrategia2026' || 
+          dbUserPassword === 'territorio2026'
+        )) {
           isPasswordCorrect = true;
         } else {
           // Attempt authentication via API/Supabase if configured
@@ -439,7 +457,7 @@ export const PrimeraInterfaz: React.FC<PrimeraInterfazProps> = ({ onLoginSuccess
           });
           if (!loginResult.error) {
             isPasswordCorrect = true;
-          } else if (dbUser && (!dbUserPassword || targetPassword === dbUserPassword)) {
+          } else if (dbUser && (!dbUserPassword || targetPassword === dbUserPassword || targetPasswordHash === dbUserPassword)) {
             isPasswordCorrect = true;
           }
         }

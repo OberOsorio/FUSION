@@ -7,13 +7,11 @@ export const supabase = {
   auth: {
     async signInWithPassword({ email, password }: any) {
       const customUrl = (import.meta as any).env?.VITE_API_URL || '';
-      if (!customUrl) {
-        return { data: null, error: { message: 'Local mode authentication' } };
-      }
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
-        const res = await fetch(`${customUrl}/api/auth/login`, {
+        const url = customUrl ? `${customUrl.replace(/\/$/, '')}/api/auth/login` : '/api/auth/login';
+        const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password }),
@@ -33,13 +31,11 @@ export const supabase = {
     
     async signUp({ email, password, options }: any) {
       const customUrl = (import.meta as any).env?.VITE_API_URL || '';
-      if (!customUrl) {
-        return { data: null, error: { message: 'Local mode registration' } };
-      }
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
-        const res = await fetch(`${customUrl}/api/auth/register`, {
+        const url = customUrl ? `${customUrl.replace(/\/$/, '')}/api/auth/register` : '/api/auth/register';
+        const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

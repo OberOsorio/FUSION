@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { ViewMode, CalendarEvent, AuthUser } from '../../types';
-import { supabase } from '../../lib/supabaseClient';
 import { insforge } from '../../lib/insforgeClient';
 import { PresupuestoContabilidad } from './PresupuestoContabilidad';
 import { GestionConfiguracionCampana } from './GestionConfiguracionCampana';
@@ -465,71 +464,60 @@ export const ModuloAdministrativo: React.FC<ModuloAdministrativoProps> = ({
         const activeClientId = authUser?.clientId || (clientData && clientData[0]?.client_id) || 'client-101';
         const activeClientName = authUser?.clientName || (clientData && clientData[0]?.client_name) || 'Campaña Principal';
 
-        // Register user in Supabase Database Auth
-        const signUpPromise = supabase.auth.signUp({
+        const tempId = 'usr-' + Date.now();
+        const dbPromise = insforge.database.from('users_list').insert([{
+          id: tempId,
           email: normalizedEmail,
+          first_name: newUserName,
+          last_name: '',
+          role_id: newUserRole,
+          role_name: newUserRole === 'admin' ? 'Gestión Administrativa' : newUserRole === 'estrategico' ? 'Gestión Estratégica' : 'Gestión Territorial',
+          client_id: activeClientId,
+          client_name: activeClientName,
+          status: 'Activo',
           password: newPassword,
-          options: {
-            emailRedirectTo: `${window.location.origin}/?campaign=${encodeURIComponent(activeClientName)}`,
-            data: {
-              name: newUserName,
-              role: newUserRole,
-            }
+          last_access_at: new Date().toISOString(),
+          created_at: new Date().toISOString()
+        }]);
+
+        (dbPromise as any).then(({ error: dbErr }: any) => {
+          if (dbErr) {
+            console.error("Error inserting user into campaign database:", dbErr.message);
+            setPasswordError(`Error al registrar en la base de datos de la campaña: ${dbErr.message}`);
+            return;
           }
-        });
+          
+          console.log("User successfully added to campaign database users_list!");
+          
+          // Update React state after successful database insertion
+          setUserPermissions(prev => ({
+            ...prev,
+            [tempId]: finalPerms
+          }));
 
-        (signUpPromise as any).then(({ data, error }: any) => {
-          if (error) {
-            console.warn("Supabase Auth notice during user registration:", error.message, "- Proceeding with campaign database registration...");
-            const tempId = 'usr-' + Date.now();
-            const dbPromise = insforge.database.from('users_list').insert([{
-              id: tempId,
-              email: normalizedEmail,
-              first_name: newUserName,
-              last_name: '',
-              role_id: newUserRole,
-              role_name: newUserRole === 'admin' ? 'Gestión Administrativa' : newUserRole === 'estrategico' ? 'Gestión Estratégica' : 'Gestión Territorial',
-              client_id: activeClientId,
-              client_name: activeClientName,
-              status: 'Activo',
-              password: newPassword,
-              last_access_at: new Date().toISOString(),
-              created_at: new Date().toISOString()
-            }]);
+          const newUser = {
+            id: tempId,
+            name: newUserName,
+            email: normalizedEmail,
+            role: newUserRole,
+            status: 'Activo' as const,
+            password: newPassword
+          };
+          
+          setUsersList(prev => [...prev, newUser]);
+          setNewUserName('');
+          setNewUserEmail('');
+          setNewPassword('');
+          setConfirmPassword('');
+          setPasswordError('');
+          setActionSuccessMessage(`¡Usuario ${newUserName} registrado y habilitado exitosamente en la base de datos de la campaña!`);
+          setTimeout(() => setActionSuccessMessage(''), 5000);
 
-            (dbPromise as any).then(({ error: dbErr }: any) => {
-              if (dbErr) {
-                console.error("Error inserting into InsForge database:", dbErr.message);
-              }
-              console.log("User successfully added to campaign database users_list!");
-              setUserPermissions(prev => ({
-                ...prev,
-                [tempId]: finalPerms
-              }));
-
-              const newUser = {
-                id: tempId,
-                name: newUserName,
-                email: normalizedEmail,
-                role: newUserRole,
-                status: 'Activo' as const,
-                password: newPassword
-              };
-              
-              setUsersList(prev => [...prev, newUser]);
-              setNewUserName('');
-              setNewUserEmail('');
-              setNewPassword('');
-              setConfirmPassword('');
-              setPasswordError('');
-              setActionSuccessMessage(`¡Usuario ${newUserName} (${normalizedEmail}) registrado y habilitado exitosamente en la base de datos de la campaña!`);
-              setTimeout(() => setActionSuccessMessage(''), 5000);
-
-              // Send email confirmation of their account creation (fallback path)
-              insforge.emails.send({
-                to: normalizedEmail,
-                subject: `¡Bienvenido a la Campaña de ${activeClientName}! - Creación de Usuario`,
-                html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #1e293b; background-color: #030d1f; color: #f8fafc; border-radius: 12px;">
+          // Send email confirmation of their account creation
+          insforge.emails.send({
+            to: normalizedEmail,
+            subject: `¡Bienvenido a la Campaña de ${activeClientName}! - Creación de Usuario`,
+            html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #1e293b; background-color: #030d1f; color: #f8fafc; border-radius: 12px;">
   <div style="text-align: center; margin-bottom: 20px;">
     <h1 style="color: #06b6d4; font-size: 24px; font-weight: 800; margin: 0; text-transform: uppercase;">Campaña Ganadora IA</h1>
     <p style="color: #94a3b8; font-size: 12px; margin: 4px 0 0 0;">Plataforma de Control Electoral</p>
@@ -558,101 +546,9 @@ export const ModuloAdministrativo: React.FC<ModuloAdministrativoProps> = ({
     </p>
   </div>
 </div>`
-              }).then(({ error: mailErr }: any) => {
-                if (mailErr) console.error("Error sending confirmation email via InsForge:", mailErr.message);
-              });
-            });
-          } else {
-            console.log("User successfully registered in Supabase auth:", data.user);
-            const supabaseUserId = data.user.id;
-
-            // Insert into InsForge database users_list table as a subuser
-            const dbPromise = insforge.database.from('users_list').insert([{
-              id: supabaseUserId,
-              email: normalizedEmail,
-              first_name: newUserName,
-              last_name: '',
-              role_id: newUserRole,
-              role_name: newUserRole === 'admin' ? 'Gestión Administrativa' : newUserRole === 'estrategico' ? 'Gestión Estratégica' : 'Gestión Territorial',
-              client_id: activeClientId,
-              client_name: activeClientName,
-              status: 'Activo',
-              password: newPassword,
-              last_access_at: new Date().toISOString(),
-              created_at: new Date().toISOString()
-            }]);
-
-            (dbPromise as any).then(({ error: dbErr }: any) => {
-              if (dbErr) {
-                console.error("Error inserting user into InsForge database:", dbErr.message);
-                setPasswordError(`Error al insertar en la base de datos de la campaña: ${dbErr.message}`);
-              } else {
-                console.log("User successfully added to InsForge database users_list!");
-                
-                // Update React state after successful database insertion
-                setUserPermissions(prev => ({
-                  ...prev,
-                  [supabaseUserId]: finalPerms
-                }));
-
-                const newUser = {
-                  id: supabaseUserId,
-                  name: newUserName,
-                  email: normalizedEmail,
-                  role: newUserRole,
-                  status: 'Activo' as const,
-                  password: newPassword
-                };
-                
-                setUsersList(prev => [...prev, newUser]);
-                setNewUserName('');
-                setNewUserEmail('');
-                setNewPassword('');
-                setConfirmPassword('');
-                setPasswordError('');
-                setActionSuccessMessage(`¡Usuario ${newUserName} registrado y habilitado exitosamente en la base de datos de la campaña!`);
-                setTimeout(() => setActionSuccessMessage(''), 5000);
-
-                // Send email confirmation of their account creation (normal path)
-                insforge.emails.send({
-                  to: normalizedEmail,
-                  subject: `¡Bienvenido a la Campaña de ${activeClientName}! - Creación de Usuario`,
-                  html: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #1e293b; background-color: #030d1f; color: #f8fafc; border-radius: 12px;">
-  <div style="text-align: center; margin-bottom: 20px;">
-    <h1 style="color: #06b6d4; font-size: 24px; font-weight: 800; margin: 0; text-transform: uppercase;">Campaña Ganadora IA</h1>
-    <p style="color: #94a3b8; font-size: 12px; margin: 4px 0 0 0;">Plataforma de Control Electoral</p>
-  </div>
-  <div style="border-top: 2px solid #06b6d4; padding-top: 20px;">
-    <p style="font-size: 16px; margin: 0 0 16px 0;">Hola <strong>${newUserName}</strong>,</p>
-    <p style="font-size: 14px; line-height: 1.6; margin: 0 0 16px 0; color: #cbd5e1;">
-      Tu cuenta de subusuario ha sido creada exitosamente en la base de datos de la campaña oficial del candidato: 
-      <strong style="color: #34d399;">${activeClientName}</strong>.
-    </p>
-    <div style="background-color: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 15px; margin-bottom: 20px; color: #f1f5f9;">
-      <p style="margin: 0 0 8px 0; font-size: 13px;"><strong>Módulo Asignado:</strong> ${newUserRole === 'admin' ? 'Gestión Administrativa' : newUserRole === 'estrategico' ? 'Gestión Estratégica' : 'Gestión Territorial'}</p>
-      <p style="margin: 0; font-size: 13px;"><strong>Correo de Acceso:</strong> ${normalizedEmail}</p>
-    </div>
-    <p style="font-size: 14px; line-height: 1.6; margin: 0 0 20px 0; color: #cbd5e1;">
-      Para comenzar a utilizar tus funciones habilitadas en la plataforma, por favor inicia sesión pulsando el siguiente botón:
-    </p>
-    <div style="text-align: center; margin-bottom: 24px;">
-      <a href="${window.location.origin}/?campaign=${encodeURIComponent(activeClientName)}" style="display: inline-block; background-color: #06b6d4; color: #0f172a; text-decoration: none; font-weight: 900; font-size: 14px; padding: 12px 24px; border-radius: 8px; text-transform: uppercase;">
-        Iniciar Sesión
-      </a>
-    </div>
-    <hr style="border: 0; border-top: 1px solid #1e293b; margin-bottom: 20px;" />
-    <p style="font-size: 11px; text-align: center; color: #64748b; margin: 0;">
-      Esta es una notificación automática del sistema de verificación oficial de la campaña electoral.
-    </p>
-  </div>
-</div>`
-                }).then(({ error: mailErr }: any) => {
-                  if (mailErr) console.error("Error sending confirmation email via InsForge:", mailErr.message);
-                });
-              }
-            });
-
-          }
+          }).then(({ error: mailErr }: any) => {
+            if (mailErr) console.error("Error sending confirmation email via InsForge:", mailErr.message);
+          });
         });
       }).catch((err: any) => {
         console.error("Error retrieving active client details:", err);

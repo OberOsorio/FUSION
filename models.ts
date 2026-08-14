@@ -225,3 +225,18 @@ export const PlanModel = mongoose.model('Plan', PlanSchema);
 export const ModuleModel = mongoose.model('Module', ModuleSchema);
 export const RoleModel = mongoose.model('Role', RoleSchema);
 export const SessionModel = mongoose.model('Session', SessionSchema);
+
+// DemoLead Schema
+const DemoLeadSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  fullName: { type: String },
+  email: { type: String },
+  phone: { type: String },
+  campaignType: { type: String },
+  department: { type: String },
+  municipality: { type: String },
+  notes: { type: String },
+  createdAt: { type: String }
+}, { strict: false });
+
+export const DemoLeadModel = mongoose.model('DemoLead', DemoLeadSchema);

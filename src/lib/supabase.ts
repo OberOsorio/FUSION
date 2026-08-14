@@ -1,43 +1,43 @@
-import { createClient } from '@supabase/supabase-js';
-import bcrypt from 'bcryptjs';
-
-// Get Supabase URL and Key from environment variables or fallback to provided user values
+// Replacement file for supabase.ts to connect directly to the Express MongoDB backend
 const env = (import.meta as any).env || {};
-const rawUrl = env.VITE_SUPABASE_URL || 'https://ojvrlleziqrimhjvsbwf.supabase.co';
-export const SUPABASE_URL = rawUrl.replace(/\/rest\/v1\/?$/, '');
-export const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_mI1eBd8nNRGv9uIICgOU-w_2weLI9lp';
 
 // URL del Software Electoral al que se redirige tras el registro/login
 export const PANEL_ADMIN_URL = env.VITE_PANEL_ADMIN_URL || 'https://softwareelectoral.netlify.app/';
+export const SUPABASE_URL = ''; // unused fallback
+export const SUPABASE_ANON_KEY = ''; // unused fallback
 
-// Initialize Supabase Client
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+// Keep a mock supabase object to avoid breaking imports elsewhere
+export const supabase = {
   auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-  },
-});
+    signUp: () => Promise.resolve({ data: { user: null }, error: new Error('Supabase is deactivated. Use MongoDB routes.') }),
+    signInWithPassword: () => Promise.resolve({ data: null, error: new Error('Supabase is deactivated. Use MongoDB routes.') }),
+    signOut: () => Promise.resolve({ error: null })
+  }
+};
 
 /**
- * Test Supabase Database Connection
+ * Test MongoDB Database Connection (replaces Supabase Connection check)
  */
 export async function testSupabaseConnection(): Promise<{ success: boolean; message: string }> {
   try {
-    const { error } = await supabase.from('campaigns').select('count', { count: 'exact', head: true });
-    if (error && error.code !== 'PGRST116' && !error.message.includes('relation "public.campaigns" does not exist')) {
-      console.warn('Supabase ping check:', error.message);
-      return { success: true, message: `Conectado a Supabase (${SUPABASE_URL})` };
+    const res = await fetch('/api/health');
+    if (!res.ok) {
+      throw new Error(`HTTP error ${res.status}`);
     }
-    return { success: true, message: `Conexión exitosa a Supabase (${SUPABASE_URL})` };
+    const data = await res.json();
+    if (data.databaseConnected) {
+      return { success: true, message: `Conexión exitosa a MongoDB Atlas (${data.service})` };
+    }
+    return { success: false, message: 'Base de datos MongoDB no conectada en el servidor (usando fallback de memoria).' };
   } catch (err: any) {
-    console.error('Error connecting to Supabase:', err);
-    return { success: false, message: err?.message || 'Error al conectar con Supabase' };
+    console.error('Error connecting to backend database check:', err);
+    return { success: false, message: err?.message || 'Error al conectar con la base de datos' };
   }
 }
 
 /**
  * Register a New Candidate/Client with instant Panel Admin access.
- * Creates a record in `clients` and a superadmin user in `users_list`.
+ * Replaced Supabase flow with a direct Express/MongoDB backend request.
  */
 export async function registerNewClient(data: {
   fullName: string;
@@ -48,73 +48,17 @@ export async function registerNewClient(data: {
   department?: string;
 }): Promise<{ success: boolean; error?: string; panelUrl?: string }> {
   try {
-    // 1. Check if email already exists
-    const { data: existingUser } = await supabase
-      .from('users_list')
-      .select('email')
-      .eq('email', data.email)
-      .single();
-
-    if (existingUser) {
-      return { success: false, error: 'Este correo electrónico ya está registrado. Usa otro o accede al Panel.' };
+    const res = await fetch('/api/auth/register-client', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      return { success: false, error: errData.error || `Error del servidor ${res.status}` };
     }
-
-    // 2. Create the client organization record
-    const { data: clientData, error: clientError } = await supabase
-      .from('clients')
-      .insert([{
-        nombre_organizacion: data.campaignName,
-        email_contacto: data.email,
-        telefono: data.phone || '',
-        departamento: data.department || 'Colombia',
-        estado: 'Activo',
-        created_from: 'landing',
-        created_at: new Date().toISOString(),
-      }])
-      .select()
-      .single();
-
-    if (clientError) {
-      console.error('Error creating client:', clientError);
-      return { success: false, error: 'No se pudo registrar la organización. Intenta nuevamente.' };
-    }
-
-    // 3. Hash the password
-    const hashedPassword = await bcrypt.hash(data.password, 12);
-
-    // 4. Create the superadmin user linked to the new client
-    const { error: userError } = await supabase
-      .from('users_list')
-      .insert([{
-        name: data.fullName,
-        email: data.email,
-        password_hash: hashedPassword,
-        role: 'superadmin',
-        cargo: 'Candidato / Propietario',
-        estado: 'Activo',
-        client_id: clientData.id,
-        created_at: new Date().toISOString(),
-        ip: '0.0.0.0',
-      }]);
-
-    if (userError) {
-      console.error('Error creating user:', userError);
-      // Rollback: delete the client record we just created
-      await supabase.from('clients').delete().eq('id', clientData.id);
-      return { success: false, error: 'Error al crear tu cuenta de acceso. Contacta a soporte.' };
-    }
-
-    // 5. Also save as demo lead for CRM tracking
-    await supabase.from('demo_leads').insert([{
-      full_name: data.fullName,
-      email: data.email,
-      phone: data.phone || '',
-      campaign_type: data.campaignName,
-      department: data.department || 'Colombia',
-      notes: 'Registro automático desde landing',
-      created_at: new Date().toISOString(),
-    }]);
-
+    
     return {
       success: true,
       panelUrl: PANEL_ADMIN_URL,
@@ -126,7 +70,7 @@ export async function registerNewClient(data: {
 }
 
 /**
- * Save a Demo Request or Lead Inquiry to Supabase
+ * Save a Demo Request or Lead Inquiry directly to MongoDB via backend
  */
 export async function saveDemoLeadToSupabase(lead: {
   fullName: string;
@@ -138,30 +82,30 @@ export async function saveDemoLeadToSupabase(lead: {
   notes?: string;
 }) {
   try {
-    const { data, error } = await supabase
-      .from('demo_leads')
-      .insert([
-        {
-          full_name: lead.fullName,
-          email: lead.email,
-          phone: lead.phone,
-          campaign_type: lead.campaignType,
-          department: lead.department,
-          municipality: lead.municipality || '',
-          notes: lead.notes || '',
-          created_at: new Date().toISOString(),
-        },
-      ])
-      .select();
+    const res = await fetch('/api/demo_leads', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fullName: lead.fullName,
+        email: lead.email,
+        phone: lead.phone,
+        campaignType: lead.campaignType,
+        department: lead.department,
+        municipality: lead.municipality || '',
+        notes: lead.notes || '',
+        createdAt: new Date().toISOString().split('T')[0]
+      })
+    });
 
-    if (error) {
-      console.warn('Could not insert to demo_leads table, logging to fallback local storage:', error.message);
-      return { success: true, data: lead, warning: error.message };
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP error ${res.status}`);
     }
+
+    const data = await res.json();
     return { success: true, data };
   } catch (err: any) {
-    console.error('Error saving lead to Supabase:', err);
+    console.error('Error saving lead to MongoDB:', err);
     return { success: false, error: err?.message };
   }
 }
-
