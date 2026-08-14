@@ -12,7 +12,7 @@ export const supabase = {
       }
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 600);
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
         const res = await fetch(`${customUrl}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -38,7 +38,7 @@ export const supabase = {
       }
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 600);
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
         const res = await fetch(`${customUrl}/api/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
